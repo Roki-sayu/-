@@ -1,24 +1,107 @@
-# Compiled class file
-*.class
+/**
+ * @OnlyCurrentDoc // スクリプトが現在のドキュメントにのみアクセスすることを明示
+ */
 
-# Log file
-*.log
+// スプレッドシートを開いたときにカスタムメニューを追加する関数
+function onOpen() {
+  SpreadsheetApp.getUi() // UI環境を取得
+      .createMenu('抽選ツール') // カスタムメニュー名
+      .addItem('指定件数をランダム抽選', 'randomSelectResponses') // メニュー項目と実行する関数
+      .addToUi(); // UIに追加
+}
 
-# BlueJ files
-*.ctxt
+// ランダム抽選を実行するメイン関数
+function randomSelectResponses() {
+  const ui = SpreadsheetApp.getUi();
 
-# Mobile Tools for Java (J2ME)
-.mtj.tmp/
+  // 抽選する件数をユーザーに入力してもらう
+  const promptResult = ui.prompt(
+    '抽選の実行',
+    '何件抽選しますか？ (半角数字で入力してください)',
+    ui.ButtonSet.OK_CANCEL);
 
-# Package Files #
-*.jar
-*.war
-*.nar
-*.ear
-*.zip
-*.tar.gz
-*.rar
+  // 入力値のチェック
+  const button = promptResult.getSelectedButton();
+  const inputText = promptResult.getResponseText();
+  const numToSelect = parseInt(inputText, 10);
 
-# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
-hs_err_pid*
-replay_pid*
+  if (button !== ui.Button.OK) {
+    ui.alert('キャンセルされました。');
+    return;
+  }
+
+  if (isNaN(numToSelect) || numToSelect <= 0) {
+    ui.alert('エラー: 正の整数を入力してください。');
+    return;
+  }
+
+  // アクティブなスプレッドシートとシートを取得
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getActiveSheet(); // 現在開いているシートを対象とする
+
+  // データ範囲を取得 (ヘッダー行を除く)
+  // データが2行目から始まっていると仮定
+  const headerRows = 1; // ヘッダー行の数
+  const dataRange = sheet.getDataRange();
+  const lastRow = dataRange.getLastRow();
+  
+  // 回答がヘッダー行しかない場合は処理を中断
+  if (lastRow <= headerRows) {
+      ui.alert('エラー: 抽選対象の回答データがありません。');
+      return;
+  }
+  
+  // ヘッダーを除いたデータ部分の値を取得
+  const dataValues = sheet.getRange(headerRows + 1, 1, lastRow - headerRows, sheet.getLastColumn()).getValues();
+  
+  // 回答数を取得
+  const numResponses = dataValues.length;
+
+  // 抽選件数が回答数より多い場合はエラー
+  if (numToSelect > numResponses) {
+    ui.alert(`エラー: 抽選件数(${numToSelect})が、回答数(${numResponses})を超えています。`);
+    return;
+  }
+
+  // --- 抽選処理 ---
+  const indices = []; // 行番号（0ベース）を格納する配列
+  for (let i = 0; i < numResponses; i++) {
+    indices.push(i);
+  }
+
+  // 配列をシャッフル（Fisher-Yatesアルゴリズム）
+  for (let i = indices.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [indices[i], indices[j]] = [indices[j], indices[i]]; // 要素を入れ替え
+  }
+
+  // シャッフルされたインデックスから指定件数分を取得
+  const selectedIndices = indices.slice(0, numToSelect);
+
+  // 当選した回答データを取得
+  const selectedResponses = selectedIndices.map(index => dataValues[index]);
+
+  // --- 結果の出力 ---
+  // ヘッダー行を取得
+  const headerValues = sheet.getRange(1, 1, headerRows, sheet.getLastColumn()).getValues();
+
+  // 新しいシートを作成して結果を出力
+  const resultSheetName = '抽選結果';
+  let resultSheet = ss.getSheetByName(resultSheetName);
+  if (resultSheet) {
+    // 既存のシートがあればクリア
+    resultSheet.clearContents();
+  } else {
+    // なければ新しいシートを作成
+    resultSheet = ss.insertSheet(resultSheetName);
+  }
+
+  // ヘッダーを書き込み
+  resultSheet.getRange(1, 1, headerRows, headerValues[0].length).setValues(headerValues);
+  // 当選データを書き込み
+  resultSheet.getRange(headerRows + 1, 1, selectedResponses.length, selectedResponses[0].length).setValues(selectedResponses);
+
+  // 結果シートをアクティブにして表示
+  resultSheet.activate();
+  ui.alert(`抽選が完了しました。\n${numToSelect}件の回答を「${resultSheetName}」シートに出力しました。`);
+}
